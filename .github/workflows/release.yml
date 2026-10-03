@@ -1,0 +1,57 @@
+# Push a tag like v1.0.0 and this builds Markup.exe on GitHub's own Windows runner and attaches
+# it to a release for that tag. The binary is built from the tagged source in public, so anyone
+# can see exactly what went into it.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows-exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build
+        shell: pwsh
+        run: ./build.ps1
+
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          $v = & dist\Markup.exe --version
+          Write-Host $v
+          if ($v -notmatch '^Markup ') { throw "unexpected --version output: $v" }
+
+      - name: Checksum
+        shell: pwsh
+        run: |
+          $h = (Get-FileHash dist\Markup.exe -Algorithm SHA256).Hash.ToLower()
+          "$h  Markup.exe" | Out-File -Encoding ascii dist\Markup.exe.sha256
+          Write-Host $h
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Markup-windows
+          path: |
+            dist/Markup.exe
+            dist/Markup.exe.sha256
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/Markup.exe
+            dist/Markup.exe.sha256
+          generate_release_notes: true
